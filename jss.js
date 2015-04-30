@@ -17,6 +17,14 @@
         var results = {};
         for (var i = 0; i < rules.length; i++) {
             // Older browsers and FF report pseudo element selectors in an outdated format
+
+            // FIXME: selectorText is not always present, since it might be a CSSMediaRule and not a CSSStyleRule
+            // eg. @media print { .label { border: 1 px solid black; } }
+            // For now, I'm just skipping media rules
+            if (typeof rules[i].selectorText === 'undefined') {
+                continue;
+            }
+
             var selectorText = toDoubleColonPseudoElements(rules[i].selectorText);
             if (!results[selectorText]) {
                 results[selectorText] = [];
@@ -37,8 +45,18 @@
         selector = selector.toLowerCase();
         for (var i = 0; i < rules.length; i++) {
             var selectorText = rules[i].selectorText;
+
+            // FIXME: selectorText is not always present, since it might be a CSSMediaRule and not a CSSStyleRule
+            // eg. @media print { .label { border: 1 px solid black; } }
+            // For now, I'm just skipping media rules
+            if (typeof selectorText === 'undefined') {
+                continue;
+            }
+
             // Note - certain rules (e.g. @rules) don't have selectorText
-            if (selectorText && (selectorText == selector || selectorText == swapAdjSelAttr(selector) || selectorText == swapPseudoElSyntax(selector))) {
+            if (selectorText && (selectorText === selector ||
+                selectorText === swapAdjSelAttr(selector) ||
+                selectorText === swapPseudoElSyntax(selector))) {
                 results.push({
                     sheet: sheet,
                     index: i,
@@ -47,6 +65,15 @@
             }
         }
         return results;
+    }
+
+    function getCSSTexts(sheet) {
+        var rules = sheet.cssRules || sheet.rules || [];
+        var cssTexts = [];
+        for (var i = 0; i < rules.length; i++) {
+            cssTexts.push(rules[i].cssText);
+        }
+        return cssTexts.join('\n');
     }
 
     function addRule(sheet, selector) {
@@ -125,32 +152,117 @@
 
     function extend(dest, src) {
         for (var key in src) {
-            if (!src.hasOwnProperty(key))
-                continue;
+            if (!src.hasOwnProperty(key)) {
+              continue;
+            }
             dest[key] = src[key];
         }
         return dest;
     }
 
+
+    function dealWithDirections(top, right, bottom, left) {
+      if (top === bottom && left === right && top === right) {
+        return [top]; // 1 value
+      } else if (top === bottom && left === right) {
+        return [top, right];
+      } else if (left === right) {
+        return [top, right, bottom];
+      } else {
+        return [top, right, bottom, left];
+      }
+    }
+
+    function borderProperties(properties, propertyName) {
+      var top, bottom, left, right;
+      var index = propertyName.indexOf('-');
+      top = properties[propertyName.substring(0, index) + '-top' + propertyName.substr(index)];
+      bottom = properties[propertyName.substring(0, index) + '-bottom' + propertyName.substr(index)];
+      left = properties[propertyName.substring(0, index) + '-left' + propertyName.substr(index)];
+      right = properties[propertyName.substring(0, index) + '-right' + propertyName.substr(index)];
+
+      return dealWithDirections(top, bottom, left, right);
+
+    }
+
     function getProperty(properties, propertyName) {
 
-      if (propertyName === 'margin' || propertyName === 'padding') {
-        if (properties[propertyName + '-top'] === properties[propertyName + '-bottom'] &&
-            properties[propertyName + '-left'] === properties[propertyName + '-right']) {
+      // FIXME: Finish implementing
+      // deal with shorthand properties (https://developer.mozilla.org/en-US/docs/Web/CSS/Shorthand_properties):
+      // background, font, margin, border, border-top, border-right, border-bottom,
+      // border-left, border-width, border-color, border-style, transition, padding, list-style, border-radius
+      // transform is technically a shorthand property, but not like the others
+      var top, bottom, left, right, width, style, color;
+      var value = properties[propertyName];
+      switch(propertyName) {
+        case 'margin':
+        case 'padding':
+          top = properties[propertyName + '-top'];
+          bottom = properties[propertyName + '-bottom'];
+          left = properties[propertyName + '-left'];
+          right = properties[propertyName + '-right'];
+          value = dealWithDirections(top, right, bottom, left).join(' ');
+          break;
 
-          if (properties[propertyName + '-top'] === properties[propertyName + '-left']) {
-            return properties[propertyName + '-top'];
-          } else {
-            return properties[propertyName + '-top'] + ' ' + properties[propertyName + '-left'];
+        // width || style || color; since border-width, border-style and border-color
+        // are shorthand properties themselves, need an extra step and it is
+        // only possible if all edges are set the same
+        case 'border':
+          width = borderProperties(properties, 'border-width');
+          style = borderProperties(properties, 'border-style');
+          color = borderProperties(properties, 'border-color');
+
+          if (color.length === 1 && style.length === 1 && width.length === 1) {
+            value = width[0] + ' ' + style[0] + ' ' + color[0];
+          } else if (width.length === 1 && style.length === 1) {
+            value = width[0] + ' ' + style[0];
+          } else if (width.length === 1) {
+            value = width[0];
           }
+          break;
 
-        } else {
-          return properties[propertyName + '-top'] + ' ' + properties[propertyName + '-right'] +
-              ' ' + properties[propertyName + '-bottom'] + ' ' + properties[propertyName + '-left'];
-        }
-      } else {
-        return properties[propertyName];
+        // width || style || color
+        case 'border-top':
+        case 'border-left':
+        case 'border-right':
+        case 'border-bottom':
+          width = properties[propertyName + '-width'];
+          style = properties[propertyName + '-style'];
+          color = properties[propertyName + '-color'];
+
+          if (width && color && style) {
+            value = width + ' ' + style + ' ' + color;
+          } else if (width && style) {
+            value = width + ' ' + style;
+          } else if (width) {
+            value = width;
+          }
+          break;
+
+        // border-top-width, border-right-width, border-bottom-width, border-left-width
+        case 'border-width':
+        case 'border-style':
+        case 'border-color':
+          value = borderProperties(properties, propertyName).join(' ');
+          break;
+
+        case 'border-radius':
+          break;
+
+        case 'background':
+          break;
+
+        case 'font':
+          break;
+
+        case 'transition':
+          break;
+
+        default:
+          value = properties[propertyName];
       }
+
+      return value;
     }
 
     function aggregateStyles(rules) {
@@ -174,10 +286,11 @@
     function swapAdjSelAttr(selector) {
         var swap = '';
         var lastIndex = 0;
-
+        var match;
         while ((match = adjSelAttrRegex.exec(selector)) !== null) {
-            if (match[0] === '')
+            if (match[0] === '') {
                 break;
+            }
             swap += selector.substring(lastIndex, match.index);
             swap += selector.substr(match.index + match[1].length, match[2].length);
             swap += selector.substr(match.index, match[1].length);
@@ -239,11 +352,11 @@
 
     Jss.prototype = {
 
-        // Returns JSS rules (selector is optional)
+        // Returns only JSS rules (selector is optional)
         get: function(selector) {
-            if (!this.defaultSheet) {
-                return {};
-            }
+
+            this.defaultSheet = this._getDefaultSheet();
+
             if (selector) {
                 return aggregateStyles(getRules(this.defaultSheet, selector));
             }
@@ -264,11 +377,20 @@
         getProperty: function(selector, propertyName) {
           return getProperty(this.getAll(selector), propertyName);
         },
+        // Returns the style rules as text for each sheet along with the URL and node id
+        exportSheets: function() {
+            var contents = [];
+            for (var i = 0; i < this.sheets.length; i++) {
+                var s = this.sheets[i];
+                var sh = { url: s.href, node_id: s.ownerNode.id, text: getCSSTexts(s)};
+                contents.push(sh);
+            }
+            return contents;
+        },
         // Adds JSS rules for the selector based on the given properties
         set: function(selector, properties) {
-            if (!this.defaultSheet) {
-                this.defaultSheet = this._createSheet();
-            }
+            this.defaultSheet = this._getDefaultSheet();
+
             properties = transformCamelCasedPropertyNames(properties);
             var rules = getRules(this.defaultSheet, selector);
             if (!rules.length) {
@@ -285,8 +407,8 @@
         },
         // Removes JSS rules (selector is optional)
         remove: function(selector) {
-            if (!this.defaultSheet)
-                return;
+            this.defaultSheet = this._getDefaultSheet();
+
             if (!selector) {
                 this._removeSheet(this.defaultSheet);
                 delete this.defaultSheet;
@@ -306,11 +428,15 @@
               }
           }
         },
-        _createSheet: function() {
-            var styleNode = this.doc.createElement('style');
-            styleNode.type = 'text/css';
-            styleNode.rel = 'stylesheet';
-            this.head.appendChild(styleNode);
+        _getDefaultSheet: function() {
+            var styleNode = this.doc.getElementById('jss-generated-styles');
+            if (styleNode === null) {
+                styleNode = this.doc.createElement('style');
+                styleNode.type = 'text/css';
+                styleNode.rel = 'stylesheet';
+                styleNode.id = 'jss-generated-styles';
+                this.head.appendChild(styleNode);
+            }
             return styleNode.sheet;
         },
         _removeSheet: function(sheet) {

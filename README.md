@@ -99,6 +99,31 @@ jss().remove('.demo'); // removes all JSS styles matching the selector
 jss().remove();        // removes all JSS styles
 ```
 
+### Other functionality
+
+**js([doc]).exportSheets()** returns all of the style rules of all of the sheets
+as text that can be used in a `*.css` file:
+
+```js
+jss().exportSheets();
+// returns the following:
+[
+  // for an existing external stylesheet
+  //(e.g. <style href='http://sykaeh.github.com/main.css'></style>):
+  { 'url': 'http://sykaeh.github.com/main.css',
+    'node_id': '',
+    'text': 'p { font-size: 15px }\na { text-decoration: none }'},
+  // for a style tag (e.g. <style>div { margin-top: 20px }</style>):
+  { 'url': '',
+    'node_id': '',
+    'text': 'div { margin-top: 20px }'},
+  // for JSS generated rules:
+  { 'url': '',
+    'node_id': 'jss-generated-styles',
+    'text': 'body { background-color: blue }\np { color: white }'},
+]
+```
+
 ## Tests
 
 There are a couple of tests that can be run.
@@ -117,7 +142,8 @@ Additionally, this library now supports the following:
 * setting, getting and removing individual properties by name
 * removing rules that were not added by JSS (upcoming)
 * media queries (upcoming)
-* function to export all of the rules, add by JSS and others so that they can be saved in a `*.css` file (upcoming)
+* function to export all of the rules, added by JSS and others so that they can be saved in a `*.css` file
+* get for shorthand rules
 
 
 ## License
