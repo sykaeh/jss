@@ -1,11 +1,12 @@
 /*
- * JSS v0.6 - JavaScript Stylesheets
- * https://github.com/Box9/jss
+ * JSS v1.0 - JavaScript Stylesheets
+ * https://github.com/sykaeh/jss
  *
+ * Copyright (c) 2015, Sybil Ehrensberger
  * Copyright (c) 2011, David Tang
  * MIT Licensed (http://www.opensource.org/licenses/mit-license.php)
  */
-var jss = (function() {
+(function() {
     var adjSelAttrRegex = /((?:\.|#)[^\.\s#]+)((?:\.|#)[^\.\s#]+)/g;
     var doubleColonPseudoElRegex = /(::)(before|after|first-line|first-letter|selection)/;
     var singleColonPseudoElRegex = /([^:])(:)(before|after|first-line|first-letter|selection)/;
@@ -56,13 +57,13 @@ var jss = (function() {
         if (!pseudoElementRule) {
             addRuleToSheet(sheet, selector, index);
         }
-        
+
         return {
             sheet: sheet,
             index: index,
             style: rules[index].style
         };
-    };
+    }
 
     function addRuleToSheet(sheet, selector, index) {
         if (sheet.insertRule) {
@@ -110,7 +111,7 @@ var jss = (function() {
     function toSingleColonPseudoElements(selector) {
         return selector.replace(doubleColonPseudoElRegex, function(match, submatch1, submatch2) {
             return ':' + submatch2;
-        })
+        });
     }
 
     function removeRule(rule) {
@@ -129,6 +130,27 @@ var jss = (function() {
             dest[key] = src[key];
         }
         return dest;
+    }
+
+    function getProperty(properties, propertyName) {
+
+      if (propertyName === 'margin' || propertyName === 'padding') {
+        if (properties[propertyName + '-top'] === properties[propertyName + '-bottom'] &&
+            properties[propertyName + '-left'] === properties[propertyName + '-right']) {
+
+          if (properties[propertyName + '-top'] === properties[propertyName + '-left']) {
+            return properties[propertyName + '-top'];
+          } else {
+            return properties[propertyName + '-top'] + ' ' + properties[propertyName + '-left'];
+          }
+
+        } else {
+          return properties[propertyName + '-top'] + ' ' + properties[propertyName + '-right'] +
+              ' ' + properties[propertyName + '-bottom'] + ' ' + properties[propertyName + '-left'];
+        }
+      } else {
+        return properties[propertyName];
+      }
     }
 
     function aggregateStyles(rules) {
@@ -152,8 +174,8 @@ var jss = (function() {
     function swapAdjSelAttr(selector) {
         var swap = '';
         var lastIndex = 0;
-            
-        while ((match = adjSelAttrRegex.exec(selector)) != null) {
+
+        while ((match = adjSelAttrRegex.exec(selector)) !== null) {
             if (match[0] === '')
                 break;
             swap += selector.substring(lastIndex, match.index);
@@ -162,9 +184,9 @@ var jss = (function() {
             lastIndex = match.index + match[0].length;
         }
         swap += selector.substr(lastIndex);
-        
+
         return swap;
-    };
+    }
 
     // FF and older browsers store rules with pseudo elements using single-colon syntax
     function swapPseudoElSyntax(selector) {
@@ -180,7 +202,7 @@ var jss = (function() {
             var importantIndex = value.indexOf(' !important');
 
             // Modern browsers seem to handle overrides fine, but IE9 doesn't
-            rule.style.removeProperty(key); 
+            rule.style.removeProperty(key);
             if (importantIndex > 0) {
                 rule.style.setProperty(key, value.substr(0, importantIndex), 'important');
             } else {
@@ -216,6 +238,7 @@ var jss = (function() {
     };
 
     Jss.prototype = {
+
         // Returns JSS rules (selector is optional)
         get: function(selector) {
             if (!this.defaultSheet) {
@@ -238,6 +261,9 @@ var jss = (function() {
             }
             return properties;
         },
+        getProperty: function(selector, propertyName) {
+          return getProperty(this.getAll(selector), propertyName);
+        },
         // Adds JSS rules for the selector based on the given properties
         set: function(selector, properties) {
             if (!this.defaultSheet) {
@@ -251,6 +277,11 @@ var jss = (function() {
             for (var i = 0; i < rules.length; i++) {
                 setStyleProperties(rules[i], properties);
             }
+        },
+        setProperty: function(selector, propertyName, propertyValue) {
+          var properties = { };
+          properties[propertyName] = propertyValue;
+          this.set(selector, properties);
         },
         // Removes JSS rules (selector is optional)
         remove: function(selector) {
@@ -267,6 +298,14 @@ var jss = (function() {
             }
             return rules.length;
         },
+        removeProperty: function(selector, propertyName) {
+          for (var i = 0; i < this.sheets.length; i++) {
+              var rules = getRules(this.sheets[i], selector);
+              if (rules.length > 0) {
+                rules[0].style[propertyName] = '';
+              }
+          }
+        },
         _createSheet: function() {
             var styleNode = this.doc.createElement('style');
             styleNode.type = 'text/css';
@@ -280,11 +319,27 @@ var jss = (function() {
         }
     };
 
-    var exports = new Jss(document);
-    exports.forDocument = function(doc) {
-        return new Jss(doc);
-    };
-    return exports;
-})();
+    function jss(doc) {
+      doc = doc || document;
+      return new Jss(doc);
+    }
 
-typeof module !== 'undefined' && module.exports && (module.exports = jss); // CommonJS support
+    /* global exports: true, module, define */
+
+    if (typeof exports !== 'undefined') {
+        if (typeof module !== 'undefined' && module.exports) {
+            exports = module.exports = jss;
+        }
+        exports.jss = jss;
+    }
+    // AMD
+    else if (typeof define === 'function' && define.amd) {
+        define('jss', function() {
+            return jss;
+        });
+    }
+    else {
+        window.jss = jss;
+    }
+
+})();
